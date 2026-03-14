@@ -436,7 +436,7 @@ body{
       <div class="mt">MEET // 01</div>
       <div class="mr">
         <div class="mi">📅</div>
-        <div><div class="mk">DATE</div><div class="mv">16 March 2026 — Sunday</div></div>
+        <div><div class="mk">DATE</div><div class="mv">16 March 2026 — Monday</div></div>
       </div>
       <div class="mr">
         <div class="mi">⏰</div>
@@ -544,7 +544,7 @@ function toggleAudio(){
   initAC();
   if(!audioOn){
     audioOn=true;document.getElementById('audio-toggle').textContent='♪ SOUND ON';
-    resumeAC(()=>{startDrone();fadeVol(.65);});
+    resumeAC(()=>{startDrone();fadeVol(1);});
   } else {
     audioOn=false;document.getElementById('audio-toggle').textContent='♪ SOUND OFF';
     fadeVol(0,.8);setTimeout(stopDrone,900);
