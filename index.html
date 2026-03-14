@@ -365,7 +365,7 @@ body{
   ╚══════════════════════════════════════════╝
 -->
 <audio id="bg-audio" loop preload="auto">
-  <source src="bgm.mp3" type="audio/mpeg">
+  <source src="YOUR_AUDIO_FILE.mp4" type="audio/mp4">
 </audio>
 
 <canvas id="bg-canvas"></canvas>
@@ -446,7 +446,7 @@ body{
       <div class="mt">MEET // 01</div>
       <div class="mr">
         <div class="mi">📅</div>
-        <div><div class="mk">DATE</div><div class="mv">16 March 2026 — Monday</div></div>
+        <div><div class="mk">DATE</div><div class="mv">16 March 2026 — Sunday</div></div>
       </div>
       <div class="mr">
         <div class="mi">⏰</div>
@@ -506,10 +506,10 @@ function drawLines(){
 
 /* ── MP4 AUDIO ENGINE ── */
 const bgAudio = document.getElementById('bg-audio');
-let audioOn = true;
+let audioOn = true;   // sound is ON by default
+let audioStarted = false;
 
-// Set initial volume
-bgAudio.volume = 0.35;
+bgAudio.volume = 0;
 
 function fadeAudioTo(targetVol, durationMs = 1500) {
   const startVol = bgAudio.volume;
@@ -524,13 +524,31 @@ function fadeAudioTo(targetVol, durationMs = 1500) {
   }, stepTime);
 }
 
+// Browsers block autoplay until a user gesture — start on first interaction
+function startAudioOnce() {
+  if (audioStarted) return;
+  audioStarted = true;
+  if (audioOn) {
+    bgAudio.play().then(() => fadeAudioTo(0.35)).catch(() => {});
+  }
+  document.removeEventListener('click', startAudioOnce);
+  document.removeEventListener('touchstart', startAudioOnce);
+  document.removeEventListener('keydown', startAudioOnce);
+}
+document.addEventListener('click', startAudioOnce);
+document.addEventListener('touchstart', startAudioOnce);
+document.addEventListener('keydown', startAudioOnce);
+
 function toggleAudio() {
   if (!audioOn) {
     audioOn = true;
     document.getElementById('audio-toggle').textContent = '♪ SOUND ON';
-    bgAudio.volume = 0;
-    bgAudio.play().catch(() => {});
-    fadeAudioTo(0.35);
+    if (!audioStarted) {
+      startAudioOnce();
+    } else {
+      bgAudio.play().catch(() => {});
+      fadeAudioTo(0.35);
+    }
   } else {
     audioOn = false;
     document.getElementById('audio-toggle').textContent = '♪ SOUND OFF';
