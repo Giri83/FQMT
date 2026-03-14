@@ -10,7 +10,6 @@
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Syne+Mono&family=Bebas+Neue&family=Syne:wght@400;700;800&display=swap');
 
-
 :root {
   --g: #00ff85;
   --g2: #00c462;
@@ -358,6 +357,17 @@ body{
 </head>
 <body>
 
+<!--
+  ╔══════════════════════════════════════════╗
+  ║  REPLACE THE src BELOW WITH YOUR MP4    ║
+  ║  e.g. src="your-audio.mp4"             ║
+  ║  or   src="https://example.com/bg.mp4" ║
+  ╚══════════════════════════════════════════╝
+-->
+<audio id="bg-audio" loop preload="auto">
+  <source src="YOUR_AUDIO_FILE.mp4" type="audio/mp4">
+</audio>
+
 <canvas id="bg-canvas"></canvas>
 <div class="crt"></div>
 <div class="vignette"></div>
@@ -494,134 +504,130 @@ function drawLines(){
 (function loop(){cx.clearRect(0,0,W,H);pts.forEach(p=>{p.u();p.d();});drawLines();requestAnimationFrame(loop);})();
 }catch(e){document.getElementById('bg-canvas').style.display='none';}
 
-/* ── AUDIO ENGINE ── */
-let AC,mg,drones=[],audioOn=false,audioInited=false;
+/* ── MP4 AUDIO ENGINE ── */
+const bgAudio = document.getElementById('bg-audio');
+let audioOn = false;
 
-function initAC(){
-  if(audioInited)return;audioInited=true;
-  try{
-    AC=new(window.AudioContext||window.webkitAudioContext)();
-    mg=AC.createGain();mg.gain.value=0;mg.connect(AC.destination);
-  }catch(e){AC=null;}
+// Set initial volume
+bgAudio.volume = 0.35;
+
+function fadeAudioTo(targetVol, durationMs = 1500) {
+  const startVol = bgAudio.volume;
+  const diff = targetVol - startVol;
+  const steps = 40;
+  const stepTime = durationMs / steps;
+  let step = 0;
+  const iv = setInterval(() => {
+    step++;
+    bgAudio.volume = Math.min(1, Math.max(0, startVol + diff * (step / steps)));
+    if (step >= steps) clearInterval(iv);
+  }, stepTime);
 }
 
-function resumeAC(cb){
-  if(!AC){cb&&cb();return;}
-  if(AC.state==='suspended'){
-    AC.resume().then(()=>{cb&&cb();}).catch(()=>{cb&&cb();});
+function toggleAudio() {
+  if (!audioOn) {
+    audioOn = true;
+    document.getElementById('audio-toggle').textContent = '♪ SOUND ON';
+    bgAudio.volume = 0;
+    bgAudio.play().catch(() => {});
+    fadeAudioTo(0.35);
   } else {
-    cb&&cb();
+    audioOn = false;
+    document.getElementById('audio-toggle').textContent = '♪ SOUND OFF';
+    fadeAudioTo(0, 800);
+    setTimeout(() => { bgAudio.pause(); bgAudio.currentTime = 0; }, 850);
   }
 }
 
-function startDrone(){
-  if(!AC)return;
-  drones.forEach(o=>{try{o.stop()}catch(e){}});drones=[];
-  // Deep ambient: root drone + harmonics + shimmer
-  [[55,'triangle',.045],[110,'triangle',.028],[164.81,'sine',.018],[220,'sine',.012],[329.63,'sine',.008]].forEach(([f,t,v],i)=>{
-    const osc=AC.createOscillator(),g=AC.createGain();
-    const lfo=AC.createOscillator(),lg=AC.createGain();
-    osc.type=t;osc.frequency.value=f;
-    lfo.type='sine';lfo.frequency.value=.05+i*.025;lg.gain.value=.3;
-    lfo.connect(lg);lg.connect(g.gain);
-    g.gain.value=v;osc.connect(g);g.connect(mg);
-    osc.start();lfo.start();drones.push(osc,lfo);
-  });
-  // Texture noise
-  const buf=AC.createBuffer(1,2*AC.sampleRate,AC.sampleRate);
-  const d=buf.getChannelData(0);
-  for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*.1;
-  const ns=AC.createBufferSource();ns.buffer=buf;ns.loop=true;
-  const nf=AC.createBiquadFilter();nf.type='bandpass';nf.frequency.value=600;nf.Q.value=.4;
-  const ng=AC.createGain();ng.gain.value=.006;
-  ns.connect(nf);nf.connect(ng);ng.connect(mg);ns.start();drones.push(ns);
+/* ── CLICK SFX (Web Audio API — kept intact) ── */
+let AC = null;
+
+function initAC() {
+  if (AC) return;
+  try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) { AC = null; }
 }
 
-function stopDrone(){drones.forEach(o=>{try{o.stop()}catch(e){}});drones=[];}
-function fadeVol(v,t=1.5){if(!AC||!mg)return;mg.gain.cancelScheduledValues(AC.currentTime);mg.gain.linearRampToValueAtTime(v,AC.currentTime+t);}
+function resumeAC(cb) {
+  if (!AC) { cb && cb(); return; }
+  if (AC.state === 'suspended') { AC.resume().then(() => { cb && cb(); }).catch(() => { cb && cb(); }); }
+  else { cb && cb(); }
+}
 
-function toggleAudio(){
+function bp(f=440, d=60, v=0.07, t='square') {
   initAC();
-  if(!audioOn){
-    audioOn=true;document.getElementById('audio-toggle').textContent='♪ SOUND ON';
-    resumeAC(()=>{startDrone();fadeVol(1);});
-  } else {
-    audioOn=false;document.getElementById('audio-toggle').textContent='♪ SOUND OFF';
-    fadeVol(0,.8);setTimeout(stopDrone,900);
-  }
+  if (!AC || !audioOn) return;
+  resumeAC(() => {
+    const o = AC.createOscillator(), g = AC.createGain();
+    o.type = t; o.frequency.value = f;
+    g.gain.setValueAtTime(v, AC.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, AC.currentTime + d / 1000);
+    o.connect(g); g.connect(AC.destination);
+    o.start(); o.stop(AC.currentTime + d / 1000 + 0.01);
+  });
 }
 
-function bp(f=440,d=60,v=.07,t='square'){
-  if(!AC||!audioOn)return;
-  const o=AC.createOscillator(),g=AC.createGain();
-  o.type=t;o.frequency.value=f;
-  g.gain.setValueAtTime(v,AC.currentTime);
-  g.gain.exponentialRampToValueAtTime(.0001,AC.currentTime+d/1000);
-  o.connect(g);g.connect(mg);o.start();o.stop(AC.currentTime+d/1000+.01);
-}
-
-function tbp(){bp(860+Math.random()*220,22,.045,'square');}
-function glitchSnd(){[330,440,220,550,110].forEach((f,i)=>setTimeout(()=>bp(f,38,.055,'sawtooth'),i*32));}
-function successChime(){[523.25,659.25,783.99,1046.5].forEach((f,i)=>setTimeout(()=>bp(f,200,.065,'sine'),i*115));}
-function revealChime(){[261.63,329.63,392,523.25,659.25,783.99].forEach((f,i)=>setTimeout(()=>bp(f,280,.055,'sine'),i*90));}
+function tbp() { bp(860 + Math.random() * 220, 22, 0.045, 'square'); }
+function glitchSnd() { [330,440,220,550,110].forEach((f,i) => setTimeout(() => bp(f,38,0.055,'sawtooth'), i*32)); }
+function successChime() { [523.25,659.25,783.99,1046.5].forEach((f,i) => setTimeout(() => bp(f,200,0.065,'sine'), i*115)); }
+function revealChime() { [261.63,329.63,392,523.25,659.25,783.99].forEach((f,i) => setTimeout(() => bp(f,280,0.055,'sine'), i*90)); }
 
 /* ── GLITCH TRANSITION ── */
-function glitchTransition(cb){
+function glitchTransition(cb) {
   glitchSnd();
-  const el=document.getElementById('glitch-flash');
-  [0,55,95,135,175].forEach((t,i)=>{setTimeout(()=>{el.style.opacity=i%2===0?(Math.max(0,.2-i*.03)).toString():'0';},t);});
-  setTimeout(cb,210);
+  const el = document.getElementById('glitch-flash');
+  [0,55,95,135,175].forEach((t,i) => { setTimeout(() => { el.style.opacity = i%2===0 ? (Math.max(0, 0.2-i*0.03)).toString() : '0'; }, t); });
+  setTimeout(cb, 210);
 }
-function switchScr(a,b,cb){
-  glitchTransition(()=>{
+function switchScr(a, b, cb) {
+  glitchTransition(() => {
     document.getElementById(a).classList.remove('active');
     document.getElementById(b).classList.add('active');
-    if(cb)cb();
+    if (cb) cb();
   });
 }
 
 /* ── SCREEN 1 ── */
-const tLines=[
-  {h:'<span class="p">&gt;</span><span class="t"> connecting to recruitment server...</span>',t:0},
-  {h:'<span class="p">&gt;</span><span class="t"> scanning device...</span>',t:700},
-  {h:'<span class="p">&gt;</span><span class="t"> candidate detected</span>',t:1400},
-  {h:'<span class="p">&gt;</span><span class="t"> classification: </span><span class="hi">FIRST YEAR</span>',t:2150},
-  {h:'<span class="p">&gt;</span><span class="t"> intelligence index: evaluating</span>',t:2900},
-  {h:'<span class="p">&gt;</span><span class="t"> potential: </span><span class="am">HIGH</span>',t:3700},
-  {h:'',t:4250,gap:true},
-  {h:'<span class="p">&gt;</span><span class="t"> loading evaluation protocol...</span>',t:4550},
+const tLines = [
+  {h:'<span class="p">&gt;</span><span class="t"> connecting to recruitment server...</span>', t:0},
+  {h:'<span class="p">&gt;</span><span class="t"> scanning device...</span>', t:700},
+  {h:'<span class="p">&gt;</span><span class="t"> candidate detected</span>', t:1400},
+  {h:'<span class="p">&gt;</span><span class="t"> classification: </span><span class="hi">FIRST YEAR</span>', t:2150},
+  {h:'<span class="p">&gt;</span><span class="t"> intelligence index: evaluating</span>', t:2900},
+  {h:'<span class="p">&gt;</span><span class="t"> potential: </span><span class="am">HIGH</span>', t:3700},
+  {h:'', t:4250, gap:true},
+  {h:'<span class="p">&gt;</span><span class="t"> loading evaluation protocol...</span>', t:4550},
 ];
 
-const termEl=document.getElementById('term');
-let lastTl=null;
+const termEl = document.getElementById('term');
+let lastTl = null;
 
-setTimeout(()=>{
-tLines.forEach((l,i)=>{
-  setTimeout(()=>{
-    if(lastTl){const c=lastTl.querySelector('.cblink');if(c)c.remove();}
-    if(l.gap){const g=document.createElement('div');g.style.height='12px';termEl.appendChild(g);return;}
-    const d=document.createElement('div');d.className='tl';
-    d.innerHTML=l.h+'<span class="cblink"></span>';
-    termEl.appendChild(d);requestAnimationFrame(()=>setTimeout(()=>d.classList.add('vis'),10));
-    tbp();lastTl=d;
-    if(i===tLines.length-1){
-      setTimeout(()=>{
-        document.getElementById('warn-box').classList.add('vis');bp(440,90,.05,'sine');
-        setTimeout(()=>{
-          if(lastTl){const c=lastTl.querySelector('.cblink');if(c)c.remove();}
-          const b=document.getElementById('btn-start');b.style.display='inline-block';bp(660,130,.05,'sine');
-        },1200);
-      },700);
-    }
-  },l.t);
-});
-},200);
+setTimeout(() => {
+  tLines.forEach((l, i) => {
+    setTimeout(() => {
+      if (lastTl) { const c = lastTl.querySelector('.cblink'); if (c) c.remove(); }
+      if (l.gap) { const g = document.createElement('div'); g.style.height='12px'; termEl.appendChild(g); return; }
+      const d = document.createElement('div'); d.className = 'tl';
+      d.innerHTML = l.h + '<span class="cblink"></span>';
+      termEl.appendChild(d); requestAnimationFrame(() => setTimeout(() => d.classList.add('vis'), 10));
+      tbp(); lastTl = d;
+      if (i === tLines.length - 1) {
+        setTimeout(() => {
+          document.getElementById('warn-box').classList.add('vis'); bp(440,90,0.05,'sine');
+          setTimeout(() => {
+            if (lastTl) { const c = lastTl.querySelector('.cblink'); if (c) c.remove(); }
+            const b = document.getElementById('btn-start'); b.style.display = 'inline-block'; bp(660,130,0.05,'sine');
+          }, 1200);
+        }, 700);
+      }
+    }, l.t);
+  });
+}, 200);
 
-function goToPuzzle(){switchScr('s-scan','s-puzzle');}
+function goToPuzzle() { switchScr('s-scan', 's-puzzle'); }
 
 /* ── SCREEN 2 ── */
-let att=0;
-const taunts=[
+let att = 0;
+const taunts = [
   'Nice try.  Precision required.',
   'Reflex test activated.',
   'Persistence detected.',
@@ -630,165 +636,142 @@ const taunts=[
   'Last attempt noted.'
 ];
 
-// show submit arena only after typing something
-const ansEl=document.getElementById('ans');
-const arenaEl=document.getElementById('submit-arena');
-ansEl.addEventListener('input',()=>{
-  if(ansEl.value.trim().length>0){
-    arenaEl.style.opacity='1';
-    arenaEl.style.pointerEvents='auto';
+const ansEl = document.getElementById('ans');
+const arenaEl = document.getElementById('submit-arena');
+ansEl.addEventListener('input', () => {
+  if (ansEl.value.trim().length > 0) {
+    arenaEl.style.opacity = '1';
+    arenaEl.style.pointerEvents = 'auto';
   } else {
-    arenaEl.style.opacity='0';
-    arenaEl.style.pointerEvents='none';
+    arenaEl.style.opacity = '0';
+    arenaEl.style.pointerEvents = 'none';
   }
 });
 
-// dodge on hover/touch, submit on click/tap only after 6 dodges
-const btn_submit=document.getElementById('btn-submit');
-let dodging=false;
-const isMobile=('ontouchstart' in window)||navigator.maxTouchPoints>0;
+const btn_submit = document.getElementById('btn-submit');
+let dodging = false;
+const isMobile = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 
-btn_submit.addEventListener('mouseenter',()=>{
-  if(!isMobile && att<6){dodge();}
-});
-
-btn_submit.addEventListener('touchstart',(e)=>{
+btn_submit.addEventListener('mouseenter', () => { if (!isMobile && att < 6) dodge(); });
+btn_submit.addEventListener('touchstart', (e) => {
   e.preventDefault();
-  if(att<6){
-    dodge();
-  } else {
-    goToProc();
-  }
-},{passive:false});
+  if (att < 6) { dodge(); } else { goToProc(); }
+}, {passive: false});
+btn_submit.addEventListener('click', (e) => { if (isMobile) return; if (att >= 6) goToProc(); });
 
-btn_submit.addEventListener('click',(e)=>{
-  if(isMobile)return; // handled by touchstart on mobile
-  if(att>=6) goToProc();
-});
-
-function dodge(){
-  if(dodging)return;
-  dodging=true;
-  const arena=document.getElementById('submit-arena');
-  const aw=arena.offsetWidth,bw=btn_submit.offsetWidth||155,bh=btn_submit.offsetHeight||46;
-  const arenaH=isMobile?220:100;
-  const maxX=aw-bw-4, maxY=arenaH-bh-4;
-  // pick a random spot far from current position
-  let nx=Math.random()*maxX, ny=Math.random()*maxY;
-  // ensure it moves at least 30% of width away
-  const cx=parseFloat(btn_submit.style.left)||aw/2-bw/2;
-  if(Math.abs(nx-cx)<aw*0.25) nx=cx>aw/2 ? Math.random()*aw*0.35 : aw*0.6+Math.random()*aw*0.35;
-  nx=Math.max(0,Math.min(maxX,nx));
-  ny=Math.max(0,Math.min(maxY,ny));
-  btn_submit.style.left=nx+'px';
-  btn_submit.style.top=ny+'px';
-  btn_submit.style.transform='none';
-  arena.style.minHeight=arenaH+'px';
-  bp(175,90,.06,'sawtooth');
-  showTaunt(taunts[att]);
-  att++;
-  if(att>=6){
-    // settle — let it be clickable now
-    setTimeout(()=>{
-      btn_submit.style.left='50%';
-      btn_submit.style.top='0px';
-      btn_submit.style.transform='translateX(-50%)';
+function dodge() {
+  if (dodging) return; dodging = true;
+  const arena = document.getElementById('submit-arena');
+  const aw = arena.offsetWidth, bw = btn_submit.offsetWidth || 155, bh = btn_submit.offsetHeight || 46;
+  const arenaH = isMobile ? 220 : 100;
+  const maxX = aw - bw - 4, maxY = arenaH - bh - 4;
+  let nx = Math.random() * maxX, ny = Math.random() * maxY;
+  const cx2 = parseFloat(btn_submit.style.left) || aw/2 - bw/2;
+  if (Math.abs(nx - cx2) < aw * 0.25) nx = cx2 > aw/2 ? Math.random() * aw * 0.35 : aw * 0.6 + Math.random() * aw * 0.35;
+  nx = Math.max(0, Math.min(maxX, nx)); ny = Math.max(0, Math.min(maxY, ny));
+  btn_submit.style.left = nx + 'px'; btn_submit.style.top = ny + 'px'; btn_submit.style.transform = 'none';
+  arena.style.minHeight = arenaH + 'px';
+  bp(175, 90, 0.06, 'sawtooth');
+  showTaunt(taunts[att]); att++;
+  if (att >= 6) {
+    setTimeout(() => {
+      btn_submit.style.left = '50%'; btn_submit.style.top = '0px'; btn_submit.style.transform = 'translateX(-50%)';
       btn_submit.classList.add('settled');
       showTaunt('Fine. You earned it. Now click.');
-      bp(660,180,.06,'sine');setTimeout(()=>bp(880,200,.06,'sine'),190);
-      dodging=false;
-    },300);
+      bp(660,180,0.06,'sine'); setTimeout(() => bp(880,200,0.06,'sine'), 190);
+      dodging = false;
+    }, 300);
   } else {
-    setTimeout(()=>{ dodging=false; },250);
+    setTimeout(() => { dodging = false; }, 250);
   }
 }
 
-function showTaunt(m){
-  const el=document.getElementById('taunt');el.textContent='// '+m;el.classList.add('vis');bp(320,50,.04);
+function showTaunt(m) {
+  const el = document.getElementById('taunt'); el.textContent = '// ' + m; el.classList.add('vis'); bp(320,50,0.04);
 }
 
 /* ── SCREEN 3 ── */
-const pLines=[
-  {h:'<span class="p">&gt;</span><span class="t"> analyzing answer...</span>',t:0},
-  {h:'<span class="p">&gt;</span><span class="t"> checking depth of thought...</span>',t:1000},
-  {h:'<span class="p">&gt;</span><span class="t"> measuring patience level...</span>',t:2000},
-  {h:'<span class="p">&gt;</span><span class="t"> cross-referencing 4,821 past candidates...</span>',t:3000},
+const pLines = [
+  {h:'<span class="p">&gt;</span><span class="t"> analyzing answer...</span>', t:0},
+  {h:'<span class="p">&gt;</span><span class="t"> checking depth of thought...</span>', t:1000},
+  {h:'<span class="p">&gt;</span><span class="t"> measuring patience level...</span>', t:2000},
+  {h:'<span class="p">&gt;</span><span class="t"> cross-referencing 4,821 past candidates...</span>', t:3000},
 ];
 
-function goToProc(){
-  switchScr('s-puzzle','s-proc',()=>{
-    const pc=document.getElementById('proc-lines');pc.innerHTML='';let last=null;
-    pLines.forEach((l,i)=>{
-      setTimeout(()=>{
-        if(last){const c=last.querySelector('.cblink');if(c)c.remove();}
-        const d=document.createElement('div');d.className='tl';
-        d.innerHTML=l.h+'<span class="cblink"></span>';
-        pc.appendChild(d);requestAnimationFrame(()=>setTimeout(()=>d.classList.add('vis'),10));
-        tbp();last=d;
-        if(i===pLines.length-1){
-          setTimeout(()=>{
-            if(last){const c=last.querySelector('.cblink');if(c)c.remove();}
-            const pw=document.getElementById('prog-wrap');pw.classList.add('vis');
-            let pct=0;
-            const iv=setInterval(()=>{
-              pct+=Math.random()*2.8+.7;
-              if(pct>=100){
-                pct=100;clearInterval(iv);
-                document.getElementById('prog-fill').style.width='100%';
+function goToProc() {
+  switchScr('s-puzzle', 's-proc', () => {
+    const pc = document.getElementById('proc-lines'); pc.innerHTML = ''; let last = null;
+    pLines.forEach((l, i) => {
+      setTimeout(() => {
+        if (last) { const c = last.querySelector('.cblink'); if (c) c.remove(); }
+        const d = document.createElement('div'); d.className = 'tl';
+        d.innerHTML = l.h + '<span class="cblink"></span>';
+        pc.appendChild(d); requestAnimationFrame(() => setTimeout(() => d.classList.add('vis'), 10));
+        tbp(); last = d;
+        if (i === pLines.length - 1) {
+          setTimeout(() => {
+            if (last) { const c = last.querySelector('.cblink'); if (c) c.remove(); }
+            const pw = document.getElementById('prog-wrap'); pw.classList.add('vis');
+            let pct = 0;
+            const iv = setInterval(() => {
+              pct += Math.random() * 2.8 + 0.7;
+              if (pct >= 100) {
+                pct = 100; clearInterval(iv);
+                document.getElementById('prog-fill').style.width = '100%';
                 successChime();
-                setTimeout(()=>{
-                  glitchTransition(()=>{
+                setTimeout(() => {
+                  glitchTransition(() => {
                     document.getElementById('result-reveal').classList.add('vis');
-                    bp(880,320,.07,'sine');setTimeout(()=>bp(1046.5,420,.07,'sine'),300);
-                    setTimeout(goToFinal,2800);
+                    bp(880,320,0.07,'sine'); setTimeout(() => bp(1046.5,420,0.07,'sine'), 300);
+                    setTimeout(goToFinal, 2800);
                   });
-                },600);
+                }, 600);
               } else {
-                document.getElementById('prog-fill').style.width=pct+'%';
-                if(Math.random()>.78)bp(200+pct*4,14,.012);
+                document.getElementById('prog-fill').style.width = pct + '%';
+                if (Math.random() > 0.78) bp(200 + pct * 4, 14, 0.012);
               }
-            },55);
-          },500);
+            }, 55);
+          }, 500);
         }
-      },l.t);
+      }, l.t);
     });
   });
 }
 
 /* ── SCREEN 4 ── */
-function goToFinal(){
-  switchScr('s-proc','s-final',()=>{
-    revealChime();if(audioOn)fadeVol(.85,2);
+function goToFinal() {
+  switchScr('s-proc', 's-final', () => {
+    revealChime();
     [
-      {id:'f0',d:100},{id:'f1',d:280},{id:'f2',d:480},
-      {id:'f3',d:680},{id:'f4',d:880},{id:'f5',d:1080},
-      {id:'btn-info',d:1360},{id:'f6',d:1650},
-    ].forEach(({id,delay:_d,d})=>{
-      setTimeout(()=>{
-        const el=document.getElementById(id);if(el)el.classList.add('vis');
-        bp(430+Math.random()*320,28,.03,'sine');
-      },d);
+      {id:'f0', d:100}, {id:'f1', d:280}, {id:'f2', d:480},
+      {id:'f3', d:680}, {id:'f4', d:880}, {id:'f5', d:1080},
+      {id:'btn-info', d:1360}, {id:'f6', d:1650},
+    ].forEach(({id, d}) => {
+      setTimeout(() => {
+        const el = document.getElementById(id); if (el) el.classList.add('vis');
+        bp(430 + Math.random() * 320, 28, 0.03, 'sine');
+      }, d);
     });
-    setTimeout(()=>{const c=document.getElementById('f1');c.classList.add('animating');},900);
+    setTimeout(() => { const c = document.getElementById('f1'); c.classList.add('animating'); }, 900);
   });
 }
 
 /* ── MEET TOGGLE ── */
-let mOpen=false;
-function toggleMeet(){
-  mOpen=!mOpen;
-  const p=document.getElementById('meet-panel');
-  const btn=document.getElementById('btn-info');
-  if(mOpen){
+let mOpen = false;
+function toggleMeet() {
+  mOpen = !mOpen;
+  const p = document.getElementById('meet-panel');
+  const btn = document.getElementById('btn-info');
+  if (mOpen) {
     p.classList.add('open');
-    btn.querySelector('.bil').textContent='▼ FIRST MEET DETAILS';
-    btn.querySelector('.bis').textContent='DECRYPTED — EYES ONLY';
-    bp(660,130,.06,'sine');setTimeout(()=>bp(880,130,.06,'sine'),135);
+    btn.querySelector('.bil').textContent = '▼ FIRST MEET DETAILS';
+    btn.querySelector('.bis').textContent = 'DECRYPTED — EYES ONLY';
+    bp(660,130,0.06,'sine'); setTimeout(() => bp(880,130,0.06,'sine'), 135);
   } else {
     p.classList.remove('open');
-    btn.querySelector('.bil').textContent='▶ VIEW FIRST MEET DETAILS';
-    btn.querySelector('.bis').textContent='CLASSIFIED INFORMATION — CLICK TO DECRYPT';
-    bp(440,80,.04);
+    btn.querySelector('.bil').textContent = '▶ VIEW FIRST MEET DETAILS';
+    btn.querySelector('.bis').textContent = 'CLASSIFIED INFORMATION — CLICK TO DECRYPT';
+    bp(440,80,0.04);
   }
 }
 </script>
