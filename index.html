@@ -71,7 +71,6 @@ body{
 }
 .screen.active{display:flex;}
 
-/* ── SCREEN 1 ── */
 #s-scan{justify-content:center;gap:0;}
 
 .scan-badge{
@@ -146,7 +145,6 @@ body{
 .ba{color:var(--g);font-size:18px;transition:transform 0.2s;}
 #btn-start:hover .ba{transform:translateX(6px);}
 
-/* ── SCREEN 2 ── */
 #s-puzzle{justify-content:center;align-items:center;gap:0;}
 
 .p-eyebrow{font-size:10px;letter-spacing:6px;color:var(--dim);margin-bottom:20px;text-align:center;}
@@ -216,7 +214,6 @@ body{
 .taunt.vis{opacity:1;}
 .rage-note{text-align:center;font-size:10px;color:rgba(0,255,133,0.15);letter-spacing:2px;margin-top:16px;}
 
-/* ── SCREEN 3 ── */
 #s-proc{justify-content:center;gap:0;}
 
 .prog-wrap{margin:26px 0;opacity:0;transition:opacity 0.4s;}
@@ -230,7 +227,6 @@ body{
 .r-tag{font-family:'Bebas Neue',sans-serif;font-size:clamp(30px,6vw,54px);letter-spacing:6px;color:var(--g);text-shadow:0 0 28px var(--glow);}
 .r-why{font-size:12px;color:var(--dim);letter-spacing:3px;margin-top:8px;}
 
-/* ── SCREEN 4 ── */
 #s-final{justify-content:center;align-items:center;text-align:center;gap:0;}
 
 .f-eyebrow{font-size:10px;letter-spacing:7px;color:var(--dim);margin-bottom:28px;opacity:0;transform:translateY(8px);transition:opacity 0.5s,transform 0.5s;}
@@ -284,7 +280,6 @@ body{
   opacity:0;transform:translateY(8px);transition:opacity 0.5s,transform 0.5s;
 }
 
-/* INFO BUTTON */
 #btn-info{
   background:transparent;border:none;cursor:pointer;padding:0;
   opacity:0;transform:translateY(8px);transition:opacity 0.5s,transform 0.5s;
@@ -307,7 +302,6 @@ body{
 .bil{font-family:'Bebas Neue',sans-serif;font-size:clamp(14px,2.3vw,18px);letter-spacing:5px;color:var(--g);}
 .bis{font-size:9px;letter-spacing:3px;color:var(--dim);margin-top:4px;}
 
-/* MEET PANEL */
 .meet-panel{
   width:100%;max-width:540px;overflow:hidden;
   max-height:0;opacity:0;
@@ -340,9 +334,8 @@ body{
 
 .vis{opacity:1!important;transform:none!important;}
 
-/* AUDIO TOGGLE */
 #audio-toggle{
-  position:fixed;bottom:20px;right:20px;z-index:500;
+  position:fixed;z-index:500;
   background:rgba(0,255,133,0.05);border:1px solid var(--g3);
   color:var(--dim);font-family:'Syne Mono',monospace;
   font-size:10px;letter-spacing:2px;padding:8px 14px;
@@ -357,13 +350,6 @@ body{
 </head>
 <body>
 
-<!--
-  ╔══════════════════════════════════════════╗
-  ║  REPLACE THE src BELOW WITH YOUR MP4    ║
-  ║  e.g. src="your-audio.mp4"             ║
-  ║  or   src="https://example.com/bg.mp4" ║
-  ╚══════════════════════════════════════════╝
--->
 <audio id="bg-audio" loop preload="auto">
   <source src="bgm.mp3" type="audio/mpeg">
 </audio>
@@ -504,18 +490,18 @@ function drawLines(){
 (function loop(){cx.clearRect(0,0,W,H);pts.forEach(p=>{p.u();p.d();});drawLines();requestAnimationFrame(loop);})();
 }catch(e){document.getElementById('bg-canvas').style.display='none';}
 
-/* ── MP4 AUDIO ENGINE ── */
+/* ── AUDIO ENGINE ── */
 const bgAudio = document.getElementById('bg-audio');
-let audioOn = true;   // sound is ON by default
+let audioOn = true;
 let audioStarted = false;
+let AC = null;  // AudioContext — created only after first user gesture
 
 bgAudio.volume = 0;
 
 function fadeAudioTo(targetVol, durationMs = 1500) {
   const startVol = bgAudio.volume;
   const diff = targetVol - startVol;
-  const steps = 40;
-  const stepTime = durationMs / steps;
+  const steps = 40, stepTime = durationMs / steps;
   let step = 0;
   const iv = setInterval(() => {
     step++;
@@ -524,10 +510,13 @@ function fadeAudioTo(targetVol, durationMs = 1500) {
   }, stepTime);
 }
 
-// Browsers block autoplay until a user gesture — start on first interaction
+// ── Called on FIRST user gesture only ──
+// Both AudioContext AND bgAudio.play() must happen here
 function startAudioOnce() {
   if (audioStarted) return;
   audioStarted = true;
+  // Safe to create AudioContext now — inside a user gesture
+  try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) { AC = null; }
   if (audioOn) {
     bgAudio.play().then(() => fadeAudioTo(0.35)).catch(() => {});
   }
@@ -543,12 +532,8 @@ function toggleAudio() {
   if (!audioOn) {
     audioOn = true;
     document.getElementById('audio-toggle').textContent = '♪ SOUND ON';
-    if (!audioStarted) {
-      startAudioOnce();
-    } else {
-      bgAudio.play().catch(() => {});
-      fadeAudioTo(0.35);
-    }
+    if (!audioStarted) { startAudioOnce(); }
+    else { bgAudio.play().catch(() => {}); fadeAudioTo(0.35); }
   } else {
     audioOn = false;
     document.getElementById('audio-toggle').textContent = '♪ SOUND OFF';
@@ -557,14 +542,8 @@ function toggleAudio() {
   }
 }
 
-/* ── CLICK SFX (Web Audio API — kept intact) ── */
-let AC = null;
-
-function initAC() {
-  if (AC) return;
-  try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch(e) { AC = null; }
-}
-
+/* ── CLICK SFX ── */
+// AC is null until startAudioOnce() fires — bp() silently skips until then
 function resumeAC(cb) {
   if (!AC) { cb && cb(); return; }
   if (AC.state === 'suspended') { AC.resume().then(() => { cb && cb(); }).catch(() => { cb && cb(); }); }
@@ -572,8 +551,7 @@ function resumeAC(cb) {
 }
 
 function bp(f=440, d=60, v=0.07, t='square') {
-  initAC();
-  if (!AC || !audioOn) return;
+  if (!AC || !audioOn) return;  // skip silently before first gesture
   resumeAC(() => {
     const o = AC.createOscillator(), g = AC.createGain();
     o.type = t; o.frequency.value = f;
@@ -658,11 +636,9 @@ const ansEl = document.getElementById('ans');
 const arenaEl = document.getElementById('submit-arena');
 ansEl.addEventListener('input', () => {
   if (ansEl.value.trim().length > 0) {
-    arenaEl.style.opacity = '1';
-    arenaEl.style.pointerEvents = 'auto';
+    arenaEl.style.opacity = '1'; arenaEl.style.pointerEvents = 'auto';
   } else {
-    arenaEl.style.opacity = '0';
-    arenaEl.style.pointerEvents = 'none';
+    arenaEl.style.opacity = '0'; arenaEl.style.pointerEvents = 'none';
   }
 });
 
